@@ -1,0 +1,3 @@
+[submodule "Assets/FishyVoice"]
+	path = Assets/FishyVoice
+	url = https://github.com/hpcvis/FishyVoice.git
