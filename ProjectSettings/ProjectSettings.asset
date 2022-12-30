@@ -773,7 +773,7 @@ PlayerSettings:
   webGLDecompressionFallback: 0
   webGLPowerPreference: 2
   scriptingDefineSymbols:
-    Standalone: FISHNET
+    Standalone: FISHNET;FISHYVOICE_SNAPPY_COMPRESSION
   additionalCompilerArguments: {}
   platformArchitecture: {}
   scriptingBackend:

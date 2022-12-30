@@ -12,7 +12,7 @@ public class FileAudioInput : IAudioInput {
 
 	public int ChannelCount => clip.channels;
 
-	public int SegmentRate => 5;
+	public int SegmentRate => 55;
 
 	private readonly AudioClip clip;
 

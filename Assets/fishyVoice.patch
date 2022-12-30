@@ -1,0 +1,103 @@
+From da66ef1cc0a925a59a0cafc480ac99a9c8e94d2c Mon Sep 17 00:00:00 2001
+From: Joshua Dahl <joshuadahl@nevada.unr.edu>
+Date: Tue, 17 Jan 2023 12:33:14 -0800
+Subject: [PATCH] Compression Benchmark Code
+
+---
+ Scripts/VoiceNetwork.cs | 42 ++++++++++++++++++++++++++++++++++++-----
+ 1 file changed, 37 insertions(+), 5 deletions(-)
+
+diff --git a/Scripts/VoiceNetwork.cs b/Scripts/VoiceNetwork.cs
+index 0143a2d..91b4621 100644
+--- a/Scripts/VoiceNetwork.cs
++++ b/Scripts/VoiceNetwork.cs
+@@ -6,6 +6,7 @@ using System.Text;
+ using Adrenak.UniMic;
+ using Adrenak.UniVoice;
+ using Adrenak.UniVoice.InbuiltImplementations;
++using Brotli;
+ using FishNet.Broadcast;
+ using FishNet.Connection;
+ using FishNet.Managing;
+@@ -13,6 +14,7 @@ using FishNet.Object;
+ using FishNet.Object.Synchronizing;
+ using FishNet.Serializing;
+ using FishNet.Transporting;
++using IronSnappy;
+ using K4os.Compression.LZ4;
+ using UnityEngine;
+ 
+@@ -368,7 +370,7 @@ namespace FishyVoice {
+ 	// Custom audio broadcast serializer that (optionally) compresses the data
+ 	public static class AudioBroadcastSerializer {
+ 		private static readonly Vector3 Vec3NaN = new (float.NaN, float.NaN, float.NaN);
+-		private const LZ4Level CompressionLevel = LZ4Level.L00_FAST; // Is level 3 compression too slow?
++		private const LZ4Level LZ4CompressionLevel = LZ4Level.L00_FAST; // Is level 3 compression too slow?
+ 		
+ 		private static byte[] writeCompressed;
+ 		private static Writer byteWriter;
+@@ -383,12 +385,27 @@ namespace FishyVoice {
+ 
+ 			// Compress the raw data
+ #if !FISHYVOICE_DISABLE_AUDIO_COMPRESSION
++	#if FISHYVOICE_CLZF_COMPRESSIO
++			var compressedLength = CLZF2.Compress(byteWriter.GetBuffer(), ref writeCompressed, byteWriter.Position);
++			writer.WriteInt32(byteWriter.Position); // Start by sending the uncompressed size
++			writer.WriteInt32(compressedLength);
++			writer.WriteBytes(writeCompressed, 0, compressedLength);
++	#elif FISHYVOICE_SNAPPY_COMPRESSION
++			writeCompressed = Snappy.Encode(byteWriter.GetArraySegment());
++			writer.WriteInt32(writeCompressed.Length);
++			writer.WriteBytes(writeCompressed, 0, writeCompressed.Length);
++	#elif FISHYVOICE_BROTLI_COMPRESSION
++			writeCompressed = new MemoryStream(byteWriter.GetBuffer(), 0, byteWriter.Position).CompressToBrotli();
++			writer.WriteInt32(writeCompressed.Length);
++			writer.WriteBytes(writeCompressed, 0, writeCompressed.Length);
++	#else
+ 			if((writeCompressed?.Length ?? 0) < LZ4Codec.MaximumOutputSize(byteWriter.Position))
+ 				writeCompressed = new byte[LZ4Codec.MaximumOutputSize(byteWriter.Position)];
+-			var compressedLength = LZ4Codec.Encode(byteWriter.GetBuffer(), 0, byteWriter.Position, writeCompressed, 0, writeCompressed.Length, CompressionLevel);
++			var compressedLength = LZ4Codec.Encode(byteWriter.GetBuffer(), 0, byteWriter.Position, writeCompressed, 0, writeCompressed.Length, LZ4CompressionLevel);
+ 			writer.WriteInt32(byteWriter.Position); // Start by sending the uncompressed size
+ 			writer.WriteInt32(compressedLength);
+ 			writer.WriteBytes(writeCompressed, 0, compressedLength);
++	#endif
+ #endif
+ 		}
+ 
+@@ -412,14 +429,29 @@ namespace FishyVoice {
+ 		public static VoiceNetwork.AudioBroadcast ReadAudioBroadcast(this Reader reader) {
+ 			// Decompress the raw data
+ #if !FISHYVOICE_DISABLE_AUDIO_COMPRESSION
++	#if FISHYVOICE_CLZF_COMPRESSION
+ 			var uncompressedLength = reader.ReadInt32();
+ 			if((buffer?.Length ?? 0) < uncompressedLength)
+ 				buffer = new byte[uncompressedLength];
+-			if (LZ4Codec.Decode(readCompressedData(reader), buffer) < 0) 
++			var compressed = readCompressedData(reader);
++			if (CLZF2.Decompress(compressed.Array, ref buffer, compressed.Count) < 1)
+ 				throw new DecoderFallbackException("Failed to decode the packet");
+ 			var byteReader = new Reader(buffer, reader.NetworkManager);
+-#else
+-			var byteReader = reader;
++	#elif FISHYVOICE_SNAPPY_COMPRESSION
++			buffer = Snappy.Decode(readCompressedData(reader));
++			var byteReader = new Reader(buffer, reader.NetworkManager);
++	#elif FISHYVOICE_BROTLI_COMPRESSION
++			var compressed = readCompressedData(reader);
++			buffer = new MemoryStream(compressed.Array, 0, compressed.Count).DecompressFromBrotli();
++			var byteReader = new Reader(buffer, reader.NetworkManager);
++	#else
++ 			var uncompressedLength = reader.ReadInt32();
++ 			if((buffer?.Length ?? 0) < uncompressedLength)
++ 				buffer = new byte[uncompressedLength];
++ 			if (LZ4Codec.Decode(readCompressedData(reader), buffer) < 0)
++ 				throw new DecoderFallbackException("Failed to decode the packet");
++ 			var byteReader = new Reader(buffer, reader.NetworkManager);
++	#endif
+ #endif
+ 
+ 			var sentPosition = byteReader.ReadBoolean();
+-- 
+2.38.0.windows.1
+
