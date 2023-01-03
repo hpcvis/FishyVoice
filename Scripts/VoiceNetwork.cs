@@ -13,7 +13,6 @@ using FishNet.Object;
 using FishNet.Object.Synchronizing;
 using FishNet.Serializing;
 using FishNet.Transporting;
-using K4os.Compression.LZ4;
 using UnityEngine;
 
 namespace FishyVoice {
@@ -368,7 +367,7 @@ namespace FishyVoice {
 	// Custom audio broadcast serializer that (optionally) compresses the data
 	public static class AudioBroadcastSerializer {
 		private static readonly Vector3 Vec3NaN = new (float.NaN, float.NaN, float.NaN);
-		private const LZ4Level CompressionLevel = LZ4Level.L00_FAST; // Is level 3 compression too slow?
+
 		
 		private static byte[] writeCompressed;
 		private static Writer byteWriter;
@@ -383,9 +382,7 @@ namespace FishyVoice {
 
 			// Compress the raw data
 #if !FISHYVOICE_DISABLE_AUDIO_COMPRESSION
-			if((writeCompressed?.Length ?? 0) < LZ4Codec.MaximumOutputSize(byteWriter.Position))
-				writeCompressed = new byte[LZ4Codec.MaximumOutputSize(byteWriter.Position)];
-			var compressedLength = LZ4Codec.Encode(byteWriter.GetBuffer(), 0, byteWriter.Position, writeCompressed, 0, writeCompressed.Length, CompressionLevel);
+			var compressedLength = CLZF2.Compress(byteWriter.GetBuffer(), ref writeCompressed, byteWriter.Position);
 			writer.WriteInt32(byteWriter.Position); // Start by sending the uncompressed size
 			writer.WriteInt32(compressedLength);
 			writer.WriteBytes(writeCompressed, 0, compressedLength);
@@ -415,7 +412,8 @@ namespace FishyVoice {
 			var uncompressedLength = reader.ReadInt32();
 			if((buffer?.Length ?? 0) < uncompressedLength)
 				buffer = new byte[uncompressedLength];
-			if (LZ4Codec.Decode(readCompressedData(reader), buffer) < 0) 
+			var compressed = readCompressedData(reader);
+			if (CLZF2.Decompress(compressed.Array, ref buffer, compressed.Count) < 1) 
 				throw new DecoderFallbackException("Failed to decode the packet");
 			var byteReader = new Reader(buffer, reader.NetworkManager);
 #else
